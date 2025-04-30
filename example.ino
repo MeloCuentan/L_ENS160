@@ -1,8 +1,8 @@
 #include <Arduino.h>
 #include <Wire.h>
-#include "ENS160.h"
+#include "L_ENS160.h"
 
-ENS160 sensor;
+L_ENS160 sensor;
 
 void setup()
 {
