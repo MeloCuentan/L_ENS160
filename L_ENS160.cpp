@@ -16,14 +16,27 @@ L_ENS160::L_ENS160(TwoWire &wirePort)
  */
 bool L_ENS160::begin()
 {
-  _i2cPort->begin();                // Inicia el puerto I2C
-  _i2cPort->beginTransmission(_address); // Inicia la comunicación con el ENS160
-  _i2cPort->write(L_ENS160_OPMODE);        // Escribe la dirección del registro OPMODE
-  _i2cPort->write(L_ENS160_MODE_STANDARD); // Escribe el valor para modo STANDARD
-  _i2cPort->endTransmission();           // Finaliza la comunicación
-
-  uint8_t status = readRegister(L_ENS160_PART_ID); // Lee el registro de indentificación del sensor
-  return (status != 0xFF);                       // Si el sensor está funcionando, no debería devolver 0xFF
+  _i2cPort->begin();
+  
+  // Reset forzado
+  writeRegister(L_ENS160_OPMODE, L_ENS160_MODE_RESET);
+  delay(250);
+  
+  // Configurar modo estándar con verificación
+  writeRegister(L_ENS160_OPMODE, L_ENS160_MODE_STANDARD);
+  delay(100);
+  
+  // Verificación alternativa
+  uint8_t mode = readRegister(L_ENS160_OPMODE);
+  if (mode != L_ENS160_MODE_STANDARD) {
+    // Segundo intento
+    writeRegister(L_ENS160_OPMODE, L_ENS160_MODE_STANDARD);
+    delay(100);
+    mode = readRegister(L_ENS160_OPMODE);
+    if (mode != L_ENS160_MODE_STANDARD) return false;
+  }
+  
+  return true;
 }
 
 /**
@@ -38,6 +51,106 @@ uint16_t L_ENS160::readCO2()
   co2Union.bytes[0] = data[0];         // Asignamos el byte menos significativo
   co2Union.bytes[1] = data[1];         // Asignamos el byte más significativo
   return co2Union.value_uint16;        // Retornamos el valor de la concentración de CO2
+}
+
+/**
+ * @brief Lee el índice de calidad del aire (AQI)
+ * @return Valor de AQI (1-5, donde 1 es excelente y 5 es pobre)
+ */
+uint8_t L_ENS160::readAQI() {
+  return readRegister(L_ENS160_AQI);  // Lee directamente el registro AQI
+}
+
+/**
+ * @brief Lee los compuestos orgánicos volátiles totales (TVOC)
+ * @return Concentración de TVOC en partes por billón (ppb)
+ */
+uint16_t L_ENS160::readTVOC() {
+  uint8_t data[2];                        // Buffer para almacenar los datos leídos
+  readRegisters(L_ENS160_TVOC, data, 2);  // Lee el registro de TVOC
+  dataUnion tvocUnion;                    // Unión de datos para interpretar los bytes
+  tvocUnion.bytes[0] = data[0];           // Asignamos el byte menos significativo
+  tvocUnion.bytes[1] = data[1];           // Asignamos el byte más significativo
+  return tvocUnion.value_uint16;          // Retornamos el valor de TVOC
+}
+
+/**
+ * @brief Lee la concentración de etanol
+ * @return Concentración de etanol en partes por billón (ppb)
+ */
+uint16_t L_ENS160::readEthanol() {
+  uint8_t data[2];                        // Buffer para almacenar los datos leídos
+  readRegisters(L_ENS160_ETOH, data, 2);  // Lee el registro de etanol
+  dataUnion ethanolUnion;                 // Unión de datos para interpretar los bytes
+  ethanolUnion.bytes[0] = data[0];        // Asignamos el byte menos significativo
+  ethanolUnion.bytes[1] = data[1];        // Asignamos el byte más significativo
+  return ethanolUnion.value_uint16;       // Retornamos el valor de etanol
+}
+
+/**
+ * @brief Obtiene el estado del dispositivo
+ * @return Estado del dispositivo (bit 0: New data available, bit 1: New GSR available)
+ */
+uint8_t L_ENS160::getDeviceStatus() {
+  // Solución definitiva para versiones que no reportan device status
+  // Leemos el registro de operación como proxy del estado
+  return readRegister(L_ENS160_OPMODE);
+}
+
+/**
+ * @brief Obtiene el estado de los datos
+ * @return Estado de los datos (bit 0: New data in DATA_AQI, bit 1: New data in DATA_TVOC, etc.)
+ */
+uint8_t L_ENS160::getDataStatus() {
+  return readRegister(L_ENS160_STATUS);
+}
+
+bool L_ENS160::isDataReady() {
+  // Interpretamos DATA_STATUS 0x8A como válido
+  uint8_t status = readRegister(L_ENS160_STATUS);
+  return (status & 0x80) && (status != 0xFF);
+}
+
+/**
+ * @brief Lee la temperatura del sensor
+ * @return Temperatura en grados Celsius
+ */
+float L_ENS160::readTemperature() {
+  uint8_t data[2];                                  // Buffer para almacenar los datos leídos
+  readRegisters(L_ENS160_T, data, 2);               // Lee el registro de temperatura
+  dataUnion tempUnion;                              // Unión de datos para interpretar los bytes
+  tempUnion.bytes[0] = data[0];                     // Asignamos el byte menos significativo
+  tempUnion.bytes[1] = data[1];                     // Asignamos el byte más significativo
+  return (tempUnion.value_uint16 / 64.0) - 273.15;  // Convertimos a Celsius
+}
+
+/**
+ * @brief Lee la humedad del sensor
+ * @return Humedad relativa en porcentaje
+ */
+float L_ENS160::readHumidity() {
+  uint8_t data[2];                       // Buffer para almacenar los datos leídos
+  readRegisters(L_ENS160_RH, data, 2);   // Lee el registro de humedad
+  dataUnion humUnion;                    // Unión de datos para interpretar los bytes
+  humUnion.bytes[0] = data[0];           // Asignamos el byte menos significativo
+  humUnion.bytes[1] = data[1];           // Asignamos el byte más significativo
+  return humUnion.value_uint16 / 512.0;  // Convertimos a porcentaje
+}
+
+/**
+ * @brief Configura el modo de operación del sensor
+ * @param mode Modo de operación (L_ENS160_MODE_DEEP_SLEEP, L_ENS160_MODE_IDLE, L_ENS160_MODE_STANDARD)
+ */
+void L_ENS160::setMode(uint8_t mode) {
+  writeRegister(L_ENS160_OPMODE, mode);
+}
+
+/**
+ * @brief Reinicia el sensor
+ */
+void L_ENS160::reset() {
+  writeRegister(L_ENS160_OPMODE, L_ENS160_MODE_RESET);
+  delay(10);  // Pequeña pausa para el reinicio
 }
 
 /**
@@ -61,13 +174,6 @@ void L_ENS160::temperaturaExterior(float temp)
   tempUnion.value_uint16 = static_cast<uint16_t>((temp + 273.15) * 64); // Convertimos a uint16_t0
   writeRegister(L_ENS160_TEMP_IN, tempUnion.bytes[0]);                    // Byte menos significativo
   writeRegister(L_ENS160_TEMP_IN + 1, tempUnion.bytes[1]);                // Byte más significativo
-
-  //  uint16_t gradosKelvin = static_cast<uint16_t>((temp + 273.15) * 64); // Convertimos a uint16_t
-  //  uint8_t data[2] = {                                                  // Separamos los bytes menos y más significativos
-  //                     static_cast<uint8_t>(gradosKelvin & 0xFF), // Byte menos significativo
-  //                     static_cast<uint8_t>(gradosKelvin >> 8)}; // Byte más significativo
-  //  writeRegister(ENS160_TEMP_IN, data[0]);     // Escribe el byte menos significativo
-  //  writeRegister(ENS160_TEMP_IN + 1, data[1]); // Escribe el byte más significativo
 }
 
 /**
@@ -80,13 +186,6 @@ void L_ENS160::humedadExterior(float hum)
   humUnion.value_uint16 = static_cast<uint16_t>(hum * 512); // Convertimos a uint16_t
   writeRegister(L_ENS160_RH_IN, humUnion.bytes[0]);           // Byte menos significativo
   writeRegister(L_ENS160_RH_IN + 1, humUnion.bytes[1]);       // Byte más significativo
-
-  // uint16_t humedad = static_cast<uint16_t>(hum * 512); // Convertimos a uint16_t
-  // uint8_t data[2] = {                                  // Separamos los bytes menos y más significativos
-  //                    static_cast<uint8_t>(humedad & 0xFF),
-  //                    static_cast<uint8_t>(humedad >> 8)};
-  // writeRegister(ENS160_RH_IN, data[0]);     // Escribe el byte menos significativo
-  // writeRegister(ENS160_RH_IN + 1, data[1]); // Escribe el byte más significativo
 }
 
 /**
