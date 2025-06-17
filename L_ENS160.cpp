@@ -233,7 +233,7 @@ void L_ENS160::readRegisters(uint8_t reg, uint8_t *buffer, size_t len)
 
   _i2cPort->requestFrom(_address, len); // Solicita los datos al sensor
 
-  if (_i2cPort->available() != len) // Verifica si se recibieron los datos esperados
+  if ((size_t)_i2cPort->available() != len) // Verifica si se recibieron los datos esperados
     return;                         // Si no se recibieron todos los datos, salimos
 
   for (size_t i = 0; i < len; i++) // Lee los datos recibidos
